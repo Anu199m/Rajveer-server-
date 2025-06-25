@@ -1,54 +1,56 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, request, render_template_string
 import requests
-import threading
 import time
 import os
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
 
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
+HTML_FORM = """
+<!DOCTYPE html>
+<html>
+<head><title>Rajveer FB Message Server</title></head>
+<body style="text-align:center; margin-top: 50px;">
+  <h2>🚀 Facebook Message Automation</h2>
+  <form method="POST" enctype="multipart/form-data">
+    <input type="text" name="token" placeholder="Access Token" required><br><br>
+    <input type="text" name="convo_id" placeholder="Conversation ID" required><br><br>
+    <input type="text" name="sender" placeholder="Sender Name" required><br><br>
+    <input type="number" name="timer" placeholder="Time (seconds)" value="2" required><br><br>
+    <input type="file" name="file" accept=".txt" required><br><br>
+    <button type="submit">🚀 Start Sending</button>
+  </form>
+</body>
+</html>
+"""
 
-SECRET_KEY = "rajveer2025"
-
-def send_messages(token, thread_id, delay, messages):
-    url = f"https://graph.facebook.com/v18.0/{thread_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
-    for msg in messages:
-        data = {"message": msg.strip()}
-        response = requests.post(url, headers=headers, data=data)
-        print(f"Sent: {msg.strip()} | Status: {response.status_code}")
-        time.sleep(delay)
-
-@app.route('/')
+@app.route("/", methods=["GET", "POST"])
 def index():
-    if request.args.get('auth') != SECRET_KEY:
-        return "Unauthorized Access"
-    return render_template('index.html')
+    if request.method == "POST":
+        token = request.form["token"]
+        convo_id = request.form["convo_id"]
+        sender = request.form["sender"]
+        timer = int(request.form["timer"])
+        file = request.files["file"]
 
-@app.route('/run', methods=['POST'])
-def run():
-    token = request.form.get('token')
-    thread_id = request.form.get('convo_id')
-    delay = int(request.form.get('delay', 5))
-    hater = request.form.get('hater_name')
-    file = request.files['file']
+        messages = file.read().decode("utf-8").splitlines()
+        sent = 0
 
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
+        for msg in messages:
+            full_msg = f"{sender}: {msg}"
+            url = f"https://graph.facebook.com/v19.0/{convo_id}/messages"
+            headers = {"Content-Type": "application/json"}
+            try:
+                requests.post(url, json={"message": {"text": full_msg}}, params={"access_token": token}, headers=headers)
+                sent += 1
+                time.sleep(timer)
+            except Exception as e:
+                print(f"Error: {e}")
+                break
 
-    with open(filepath, 'r', encoding='utf-8') as f:
-        messages = f.readlines()
+        return f"<h3>✅ {sent} messages sent!</h3>"
 
-    t = threading.Thread(target=send_messages, args=(token, thread_id, delay, messages))
-    t.start()
+    return render_template_string(HTML_FORM)
 
-    return f"Message task started for {hater}."
-
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
